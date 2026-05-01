@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  id-token: write
+  id-token: write    # OIDC JWT 토큰 발급
   contents: read
 
 env:
@@ -44,7 +44,7 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions-cicid-basic-lab-role
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-actions-cicd-basic-lab-role
           aws-region: ${{ env.AWS_REGION }}
           role-session-name: GitHubActions-CI-${{ github.run_id }}
 
@@ -55,7 +55,7 @@ jobs:
       - name: Build, tag and push image to ECR
         working-directory: cicd-basic-lab
         env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.______ }}
         run: |
           SHORT_SHA="${{ github.sha }}"
           SHORT_SHA="${SHORT_SHA:0:7}"
@@ -65,8 +65,11 @@ jobs:
           docker build -t ${IMAGE_URI} .
           docker push ${IMAGE_URI}
 
+          # working-directory 스텝에서 GITHUB_OUTPUT 직접 쓰면 cd Job 전달 불가
+          # GITHUB_ENV로 다음 스텝에 전달
           echo "IMAGE_TAG=${TAG}" >> $GITHUB_ENV
 
+      # working-directory 없이 실행해야 GITHUB_OUTPUT 정상 동작
       - name: Export image outputs
         id: build-push
         run: |
@@ -89,12 +92,17 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           role-session-name: GitHubActions-CD-${{ github.run_id }}
 
+      # ACCOUNT_ID 플레이스홀더 치환
+      # find로 동적 탐색 (경로 중복 문제 회피)
       - name: Inject Account ID into task definition
         run: |
           ACCOUNT_ID=$(aws sts get-caller-identity --query ACCOUNT --output text)
           TASK_DEF_PATH=$(find $GITHUB_WORKSPACE -name "task-definition.json" | head -1)
           sed -i "s/ACCOUNT_ID/${ACCOUNT_ID}/g" ${TASK_DEF_PATH}
 
+      # . / 포함 값은 Job outputs 전달 불가
+      # → image-repo-tag (mylab-backend:36-761c224) 만 전달받고
+      # → cd Job에서 ECR registry 주소를 직접 조합
       - name: Render new task definition with updated image
         id: task-def
         uses: aws-actions/amazon-ecs-render-task-definition@v1
@@ -109,4 +117,4 @@ jobs:
           task-definition: ${{ steps.task-def.outputs.task-definition }}
           service:  ${{ env.ECS_SERVICE }}
           cluster:  ${{ env.ECS_CLUSTER }}
-          wait-for-service-stability: true # NEW TASK가 healthy + OLD TASK 종료 여부 확인
+          wait-for-service-stability: true # NEW TASK가 healthy + OLD TASK가 종료 여부 확
